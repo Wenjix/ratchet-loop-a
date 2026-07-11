@@ -68,8 +68,12 @@ export function createApiRouter() {
     const mandate = worldState.mandates.find((m) => m.id === req.params.id);
     if (!mandate) return res.status(404).json({ error: 'Unknown mandate' });
     try {
-      updateMandateStatus(mandate.id, 'rejected');
+      // Escrow refund runs first, inside the same try/catch, before the mandate status is
+      // durably flipped — same ordering-bug class fixed in verification-agent.js's
+      // verify_completion. If refundEscrow throws, the mandate stays in its prior status
+      // instead of being left in an inconsistent "rejected but not refunded" state.
       refundEscrow(mandate.id);
+      updateMandateStatus(mandate.id, 'rejected');
       recordOutcome(mandate.decisionClassKey, { mandateId: mandate.id, amount: mandate.amount, outcome: 'overridden' });
       res.json({ success: true });
     } catch (error) {

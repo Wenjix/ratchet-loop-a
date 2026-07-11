@@ -38,7 +38,7 @@ function renderLedger(entries) {
   }
 }
 
-function renderInbox(mandates) {
+function renderInbox(mandates, policyLedger) {
   inboxList.innerHTML = '';
   const pending = mandates.filter((m) => m.status === 'pending_approval');
   for (const mandate of pending) {
@@ -54,6 +54,23 @@ function renderInbox(mandates) {
     li.appendChild(actions);
     inboxList.appendChild(li);
   }
+
+  const proposedPolicies = (policyLedger || []).filter((entry) => entry.pendingProposal);
+  for (const entry of proposedPolicies) {
+    const li = el('li', { class: 'policy-proposal' });
+    li.appendChild(document.createTextNode(
+      `POLICY PROPOSAL — ${entry.key} — streak ${entry.streak} — proposed cap $${entry.pendingProposal.cap}`
+    ));
+    const actions = el('span', { class: 'inbox-actions' });
+    const acceptBtn = el('button', { text: 'Accept' });
+    acceptBtn.onclick = () => fetch(`/api/policies/${encodeURIComponent(entry.key)}/accept`, { method: 'POST' }).then(refresh);
+    const rejectBtn = el('button', { class: 'reject', text: 'Reject' });
+    rejectBtn.onclick = () => fetch(`/api/policies/${encodeURIComponent(entry.key)}/reject`, { method: 'POST' }).then(refresh);
+    actions.appendChild(acceptBtn);
+    actions.appendChild(rejectBtn);
+    li.appendChild(actions);
+    inboxList.appendChild(li);
+  }
 }
 
 async function refresh() {
@@ -62,7 +79,7 @@ async function refresh() {
   feedList.innerHTML = '';
   for (const decision of state.decisionFeed.slice(-30)) renderDecision(decision);
   renderLedger(state.policyLedger);
-  renderInbox(state.mandates);
+  renderInbox(state.mandates, state.policyLedger);
 }
 
 document.getElementById('run-scenario').addEventListener('click', () => {
@@ -74,7 +91,7 @@ events.onmessage = (event) => {
   const { type, payload } = JSON.parse(event.data);
   if (type === 'decision') renderDecision(payload);
   if (type === 'coordination_flow') renderFlow(payload);
-  if (['mandate_created', 'mandate_updated', 'policy_proposed', 'policy_accepted', 'policy_revoked'].includes(type)) refresh();
+  if (['mandate_created', 'mandate_updated', 'policy_proposed', 'policy_accepted', 'policy_rejected', 'policy_revoked'].includes(type)) refresh();
 };
 
 refresh();

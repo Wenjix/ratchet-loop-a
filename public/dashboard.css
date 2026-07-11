@@ -83,6 +83,8 @@ main {
 
 .policy-revoked { text-decoration: line-through; color: var(--text-dim); }
 
+.policy-proposal { color: var(--sourcing); }
+
 .inbox-actions button { margin-right: 6px; font-size: 12px; padding: 4px 8px; }
 
 .inbox-actions .reject { background: #EF4444; color: #2a0505; }

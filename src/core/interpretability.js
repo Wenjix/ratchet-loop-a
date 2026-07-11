@@ -71,13 +71,14 @@ const activeFlows = [];
 function pushFlow(flow) {
   activeFlows.push(flow);
   bus.emit('coordination_flow', flow);
-  setTimeout(() => {
+  const timer = setTimeout(() => {
     const idx = activeFlows.indexOf(flow);
     if (idx !== -1) {
       activeFlows.splice(idx, 1);
       bus.emit('coordination_flow_ended', flow.id);
     }
   }, flow.duration);
+  timer.unref();
 }
 
 bus.on('decision_logged', (decision) => {

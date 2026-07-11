@@ -137,6 +137,7 @@ export function getPolicyLedger() {
       key: dc.key,
       status: dc.status,
       ceiling: dc.ceiling,
+      streak: dc.streak,
       policy: dc.policy,
       pendingProposal: dc.pendingProposal,
     }));

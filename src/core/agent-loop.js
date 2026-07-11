@@ -180,8 +180,8 @@ export async function runAgentLoop({ systemPrompt, tools, toolExecutor, agentNam
     messages.push({ role: 'user', content: toolResultMessages });
   }
 
-  const fullResponse = { agent: agentName, ...result, timestamp: new Date().toISOString() };
   result.truncated = truncated;
+  const fullResponse = { agent: agentName, ...result, timestamp: new Date().toISOString() };
   bus.emit('agent_response', fullResponse);
   return result;
 }
