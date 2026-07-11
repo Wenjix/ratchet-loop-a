@@ -81,7 +81,6 @@ The dashboard renders this as a calm "washi daylight" garden: household agents i
 - **In-memory by design.** World state, escrow, reputations, and decision classes reset per run; persistence is out of scope for the prototype.
 - **Human decisions are first-class events.** The inbox routes broadcast `principal_action` frames, so the UI can distinguish a real by-hand click from the demo's simulated principal.
 
-Design docs: [`docs/superpowers/specs/2026-07-10-loop-a-household-ops-design.md`](docs/superpowers/specs/2026-07-10-loop-a-household-ops-design.md) (mechanism) · [`docs/superpowers/specs/2026-07-11-washi-daylight-frontend-design.md`](docs/superpowers/specs/2026-07-11-washi-daylight-frontend-design.md) (dashboard).
 
 ## Setup
 
