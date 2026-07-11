@@ -20,8 +20,12 @@ export function executeSchedulerTool(toolName, toolInput) {
       return { success: true, due, simTime: worldState.tasks.simTime };
     }
     case 'complete_task_cycle': {
-      const task = completeTaskCycle(toolInput.task_id);
-      return { success: true, task };
+      try {
+        const task = completeTaskCycle(toolInput.task_id);
+        return { success: true, task };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
     }
     default:
       return { success: false, error: `Unknown tool: ${toolName}` };

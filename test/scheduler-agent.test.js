@@ -23,3 +23,9 @@ test('get_schedule returns the full schedule', () => {
   const result = executeSchedulerTool('get_schedule', {});
   assert.equal(result.schedule.length, 2);
 });
+
+test('complete_task_cycle returns a structured error instead of throwing for an unknown task_id', () => {
+  const result = executeSchedulerTool('complete_task_cycle', { task_id: 'nonexistent' });
+  assert.equal(result.success, false);
+  assert.match(result.error, /Unknown task/);
+});

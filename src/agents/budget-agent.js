@@ -23,8 +23,12 @@ export function executeBudgetTool(toolName, toolInput) {
       return { success: true, category: toolInput.category, cap_per_month: cat.cap_per_month, spent_this_month: cat.spent_this_month, remaining: cat.cap_per_month - cat.spent_this_month };
     }
     case 'record_spend': {
-      const cat = recordSpend(toolInput.category, toolInput.amount);
-      return { success: true, category: toolInput.category, spent_this_month: cat.spent_this_month };
+      try {
+        const cat = recordSpend(toolInput.category, toolInput.amount);
+        return { success: true, category: toolInput.category, spent_this_month: cat.spent_this_month };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
     }
     case 'get_all_categories':
       return { success: true, categories: worldState.budget.categories };

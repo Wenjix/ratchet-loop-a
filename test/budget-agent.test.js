@@ -23,3 +23,9 @@ test('get_all_categories returns the full category map', () => {
   const result = executeBudgetTool('get_all_categories', {});
   assert.ok('lawn_care' in result.categories);
 });
+
+test('record_spend returns a structured error instead of throwing for an unknown category', () => {
+  const result = executeBudgetTool('record_spend', { category: 'nonexistent', amount: 10 });
+  assert.equal(result.success, false);
+  assert.match(result.error, /Unknown budget category/);
+});
