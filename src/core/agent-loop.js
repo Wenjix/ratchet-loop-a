@@ -84,6 +84,7 @@ export async function runAgentLoop({ systemPrompt, tools, toolExecutor, agentNam
     messages[0].content += `\n\n[PENDING REQUESTS FROM OTHER AGENTS]\n${requestSummary}`;
   }
 
+  let truncated = true;
   const result = { speech: '', actions: [], toolResults: [], reasoning: [], interAgentRequests: [] };
   let turns = 0;
 
@@ -128,6 +129,7 @@ export async function runAgentLoop({ systemPrompt, tools, toolExecutor, agentNam
     }
 
     if (toolUseBlocks.length === 0 || response.stop_reason === 'end_turn') {
+      truncated = false;
       break;
     }
 
@@ -179,6 +181,7 @@ export async function runAgentLoop({ systemPrompt, tools, toolExecutor, agentNam
   }
 
   const fullResponse = { agent: agentName, ...result, timestamp: new Date().toISOString() };
+  result.truncated = truncated;
   bus.emit('agent_response', fullResponse);
   return result;
 }

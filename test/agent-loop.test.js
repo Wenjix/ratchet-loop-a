@@ -78,3 +78,25 @@ test('runAgentLoop routes request_agent_help through sendAgentRequest', async ()
   assert.equal(result.interAgentRequests.length, 1);
   assert.equal(getPendingRequests('verification').some((r) => r.action === 'inspect the last mow'), true);
 });
+
+test('runAgentLoop sets truncated=true when MAX_TOOL_TURNS is exhausted mid-tool-use', async () => {
+  const alwaysToolUse = { content: [{ type: 'tool_use', id: 'toolu_x', name: 'check_budget', input: {} }], stop_reason: 'tool_use' };
+  const client = fakeClient([alwaysToolUse, alwaysToolUse, alwaysToolUse]);
+  const result = await runAgentLoop({
+    systemPrompt: 'test',
+    tools: [{ name: 'check_budget', description: 'x', input_schema: { type: 'object', properties: {} } }],
+    toolExecutor: () => ({ success: true }),
+    agentName: 'budget', userMessage: 'keep going', contextBuilder: () => 'no context', client,
+  });
+  assert.equal(result.truncated, true);
+  assert.equal(result.actions.length, 3);
+});
+
+test('runAgentLoop sets truncated=false when the model ends naturally', async () => {
+  const client = fakeClient([{ content: [{ type: 'text', text: 'done' }], stop_reason: 'end_turn' }]);
+  const result = await runAgentLoop({
+    systemPrompt: 'test', tools: [], toolExecutor: () => ({ success: true }),
+    agentName: 'budget', userMessage: 'status?', contextBuilder: () => 'no context', client,
+  });
+  assert.equal(result.truncated, false);
+});
