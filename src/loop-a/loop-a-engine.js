@@ -145,3 +145,14 @@ export function getPolicyLedger() {
 export function _getDecisionClassesMap() {
   return decisionClasses;
 }
+
+// Deviation from brief (Task 19 carry-forward from Task 18's review): setUpScenario()
+// only reset worldState, not this module's own state (decisionClasses Map / policyCounter).
+// Calling runScenario() more than once in the same process would compound streaks across
+// runs and misnumber policy IDs. This export lets the scenario driver start every run
+// completely fresh.
+export function resetDecisionClasses() {
+  decisionClasses.clear();
+  policyCounter = 0;
+  worldState.policies.decisionClasses = {};
+}

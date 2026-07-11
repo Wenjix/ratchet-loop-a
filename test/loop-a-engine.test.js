@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getOrCreateDecisionClass, checkPolicy, recordOutcome, acceptProposal, rejectProposal, getPolicyLedger } from '../src/loop-a/loop-a-engine.js';
+import { getOrCreateDecisionClass, checkPolicy, recordOutcome, acceptProposal, rejectProposal, getPolicyLedger, getAllDecisionClasses, resetDecisionClasses } from '../src/loop-a/loop-a-engine.js';
 
 test('getOrCreateDecisionClass creates a class defaulting to escalate with no policy', () => {
   const dc = getOrCreateDecisionClass('sourcing:commit_mandate:greenblade:lawn_mowing:0-75', { ceiling: 'auto' });
@@ -126,4 +126,30 @@ test('getPolicyLedger lists classes with a policy or pending proposal', () => {
   const greenblade = ledger.find((e) => e.key === 'sourcing:commit_mandate:greenblade:lawn_mowing:0-75');
   assert.ok(greenblade);
   assert.equal(greenblade.policy.id, 'POLICY-001');
+});
+
+test('resetDecisionClasses clears all decision classes and resets the policy counter', () => {
+  const key = 'sourcing:commit_mandate:resettest:lawn_mowing:0-75';
+  getOrCreateDecisionClass(key, { ceiling: 'auto' });
+  recordOutcome(key, { mandateId: 'r1', amount: 40, outcome: 'approved-clean' });
+  recordOutcome(key, { mandateId: 'r2', amount: 42, outcome: 'approved-clean' });
+  recordOutcome(key, { mandateId: 'r3', amount: 44, outcome: 'approved-clean' });
+  assert.ok(getAllDecisionClasses().length > 0);
+
+  resetDecisionClasses();
+  assert.deepEqual(getAllDecisionClasses(), []);
+
+  const fresh = getOrCreateDecisionClass(key, { ceiling: 'auto' });
+  assert.equal(fresh.status, 'escalate');
+  assert.equal(fresh.streak, 0);
+  assert.equal(fresh.pendingProposal, null);
+  assert.equal(fresh.policy, null);
+
+  recordOutcome(key, { mandateId: 'r4', amount: 40, outcome: 'approved-clean' });
+  recordOutcome(key, { mandateId: 'r5', amount: 42, outcome: 'approved-clean' });
+  const dc = recordOutcome(key, { mandateId: 'r6', amount: 44, outcome: 'approved-clean' });
+  assert.ok(dc.pendingProposal);
+
+  const policy = acceptProposal(key);
+  assert.equal(policy.id, 'POLICY-001');
 });

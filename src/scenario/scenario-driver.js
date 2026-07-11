@@ -1,7 +1,7 @@
 import { worldState, scheduleTask, advanceSimTime, updateMandateStatus, recordSpend } from '../core/world-state.js';
 import { registerVendor } from '../coordination/vendor-registry.js';
 import { openEscrow } from '../coordination/escrow-ledger.js';
-import { getOrCreateDecisionClass, acceptProposal, rejectProposal, recordOutcome } from '../loop-a/loop-a-engine.js';
+import { getOrCreateDecisionClass, acceptProposal, rejectProposal, recordOutcome, resetDecisionClasses } from '../loop-a/loop-a-engine.js';
 import { CEILING_BY_TASK_TYPE } from '../loop-a/decision-class.js';
 import { executeSourcingTool } from '../agents/sourcing-agent.js';
 import { executeVerificationTool } from '../agents/verification-agent.js';
@@ -22,6 +22,10 @@ export function setUpScenario() {
   worldState.mandates = [];
   worldState.tasks.schedule = [];
   worldState.tasks.simTime = 0;
+  // Task 19 carry-forward fix (from Task 18's review): also reset loop-a-engine.js's
+  // own module-level state so a second/third runScenario() call in the same server
+  // process starts completely fresh instead of compounding streaks / misnumbering policies.
+  resetDecisionClasses();
 
   const vendorAgents = {};
   for (const config of VENDOR_ROSTER) {
