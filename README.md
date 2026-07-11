@@ -11,6 +11,10 @@ npm install
 cp .env.example .env   # then set ANTHROPIC_API_KEY
 ```
 
+## LLM provider
+
+`LLM_PROVIDER` selects which SDK the agents call: `anthropic` (default) or `openai`. Set the matching `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. `ANTHROPIC_MODEL`/`OPENAI_MODEL` optionally override the default model string (`claude-sonnet-4-6` / `gpt-4o`). OpenAI model availability changes over time — if `gpt-4o` isn't available on your account, set `OPENAI_MODEL` to whatever tool-calling-capable model you do have access to.
+
 ## Run the tests
 
 ```bash

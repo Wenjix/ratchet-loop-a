@@ -1,12 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { bus, pushAlert } from './world-state.js';
 import { detectConflicts } from './conflict-resolver.js';
-
-let defaultClient = null;
-function getDefaultClient() {
-  if (!defaultClient) defaultClient = new Anthropic();
-  return defaultClient;
-}
+import { getDefaultProvider } from './llm/index.js';
 
 const MAX_TOOL_TURNS = 3;
 
@@ -71,18 +65,39 @@ export function getPendingRequests(agentName) {
   return pendingRequests.filter((r) => r.to === agentName && r.status === 'pending');
 }
 
-export async function runAgentLoop({ systemPrompt, tools, toolExecutor, agentName, userMessage, contextBuilder, client }) {
-  const activeClient = client || getDefaultClient();
+export async function runAgentLoop({ systemPrompt, tools, toolExecutor, agentName, userMessage, contextBuilder, provider }) {
+  const activeProvider = provider || getDefaultProvider();
   const context = contextBuilder();
-  const messages = [{ role: 'user', content: `[WORLD STATE] ${context}\n\n[PRINCIPAL] ${userMessage}` }];
+  let seedText = `[WORLD STATE] ${context}\n\n[PRINCIPAL] ${userMessage}`;
 
   const pending = getPendingRequests(agentName);
   if (pending.length > 0) {
     const requestSummary = pending.map((r) =>
       `[REQUEST FROM ${r.from.toUpperCase()}] Action: ${r.action}. Reason: ${r.reason}. Params: ${JSON.stringify(r.params)}`
     ).join('\n');
-    messages[0].content += `\n\n[PENDING REQUESTS FROM OTHER AGENTS]\n${requestSummary}`;
+    seedText += `\n\n[PENDING REQUESTS FROM OTHER AGENTS]\n${requestSummary}`;
   }
+
+  const history = [{ role: 'user', text: seedText }];
+
+  const allTools = [
+    ...tools,
+    {
+      name: 'request_agent_help',
+      description: 'Request another agent to take an action. Use this when you need coordination. The request will be visible to the principal.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          target_agent: { type: 'string', enum: ['budget', 'scheduler', 'sourcing', 'verification'], description: 'Agent to request help from' },
+          action: { type: 'string', description: 'What you need them to do' },
+          reason: { type: 'string', description: 'Why you need this — visible to the principal' },
+          params: { type: 'object', description: 'Parameters for the request' },
+          priority: { type: 'string', enum: ['normal', 'urgent', 'critical'] },
+        },
+        required: ['target_agent', 'action', 'reason'],
+      },
+    },
+  ];
 
   let truncated = true;
   const result = { speech: '', actions: [], toolResults: [], reasoning: [], interAgentRequests: [] };
@@ -91,64 +106,36 @@ export async function runAgentLoop({ systemPrompt, tools, toolExecutor, agentNam
   while (turns < MAX_TOOL_TURNS) {
     turns++;
 
-    const response = await activeClient.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: systemPrompt,
-      tools: [
-        ...tools,
-        {
-          name: 'request_agent_help',
-          description: 'Request another agent to take an action. Use this when you need coordination. The request will be visible to the principal.',
-          input_schema: {
-            type: 'object',
-            properties: {
-              target_agent: { type: 'string', enum: ['budget', 'scheduler', 'sourcing', 'verification'], description: 'Agent to request help from' },
-              action: { type: 'string', description: 'What you need them to do' },
-              reason: { type: 'string', description: 'Why you need this — visible to the principal' },
-              params: { type: 'object', description: 'Parameters for the request' },
-              priority: { type: 'string', enum: ['normal', 'urgent', 'critical'] },
-            },
-            required: ['target_agent', 'action', 'reason'],
-          },
-        },
-      ],
-      messages,
-    });
+    const { text, toolCalls, stopReason } = await activeProvider.createTurn({ systemPrompt, tools: allTools, history });
 
-    const toolUseBlocks = [];
-    const toolResultMessages = [];
-
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        result.speech += block.text;
-        result.reasoning.push({ turn: turns, type: 'speech', content: block.text });
-      } else if (block.type === 'tool_use') {
-        toolUseBlocks.push(block);
-      }
+    if (text) {
+      result.speech += text;
+      result.reasoning.push({ turn: turns, type: 'speech', content: text });
     }
 
-    if (toolUseBlocks.length === 0 || response.stop_reason === 'end_turn') {
+    if (toolCalls.length === 0 || stopReason === 'end_turn') {
       truncated = false;
       break;
     }
 
-    for (const block of toolUseBlocks) {
+    const results = [];
+
+    for (const call of toolCalls) {
       let toolResult;
 
-      if (block.name === 'request_agent_help') {
+      if (call.name === 'request_agent_help') {
         const req = sendAgentRequest({
           from: agentName,
-          to: block.input.target_agent,
-          action: block.input.action,
-          params: block.input.params || {},
-          reason: block.input.reason,
-          priority: block.input.priority || 'normal',
+          to: call.input.target_agent,
+          action: call.input.action,
+          params: call.input.params || {},
+          reason: call.input.reason,
+          priority: call.input.priority || 'normal',
         });
         result.interAgentRequests.push(req);
         toolResult = { success: true, request_id: req.id, status: 'Request sent. Will be handled by the router.' };
       } else {
-        const conflicts = detectConflicts(agentName, block.name, block.input);
+        const conflicts = detectConflicts(agentName, call.name, call.input);
         if (conflicts.some((c) => c.severity === 'critical')) {
           toolResult = {
             success: false,
@@ -157,27 +144,27 @@ export async function runAgentLoop({ systemPrompt, tools, toolExecutor, agentNam
             message: 'Action blocked due to critical conflict. Principal decision required.',
           };
         } else {
-          toolResult = toolExecutor(block.name, block.input);
+          toolResult = toolExecutor(call.name, call.input);
         }
       }
 
       logDecision({
         agent: agentName,
         type: 'tool-call',
-        action: block.name,
-        input: block.input,
+        action: call.name,
+        input: call.input,
         result: toolResult,
         reason: result.speech,
       });
 
-      result.actions.push({ tool: block.name, input: block.input });
+      result.actions.push({ tool: call.name, input: call.input });
       result.toolResults.push(toolResult);
 
-      toolResultMessages.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(toolResult) });
+      results.push({ id: call.id, name: call.name, output: toolResult });
     }
 
-    messages.push({ role: 'assistant', content: response.content });
-    messages.push({ role: 'user', content: toolResultMessages });
+    history.push({ role: 'assistant', text, toolCalls });
+    history.push({ role: 'tool_result', results });
   }
 
   result.truncated = truncated;
