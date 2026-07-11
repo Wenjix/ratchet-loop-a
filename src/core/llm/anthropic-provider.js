@@ -6,7 +6,7 @@ function getClient() {
   return defaultClient;
 }
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_MODEL = 'claude-sonnet-5';
 
 export function createAnthropicProvider({ client } = {}) {
   const activeClient = client || getClient();

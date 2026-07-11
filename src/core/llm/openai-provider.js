@@ -6,7 +6,7 @@ function getClient() {
   return defaultClient;
 }
 
-const DEFAULT_MODEL = 'gpt-4o';
+const DEFAULT_MODEL = 'gpt-5.4-mini';
 
 export function createOpenAIProvider({ client } = {}) {
   const activeClient = client || getClient();

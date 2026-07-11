@@ -124,4 +124,4 @@ npm test         # node --test — engine, agents, coordination, driver, API/SSE
 
 ## LLM provider
 
-`LLM_PROVIDER` selects which SDK the interactive agents call: `anthropic` (default) or `openai`. Set the matching `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. `ANTHROPIC_MODEL`/`OPENAI_MODEL` optionally override the default model string (`claude-sonnet-4-6` / `gpt-4o`). OpenAI model availability changes over time — if `gpt-4o` isn't available on your account, set `OPENAI_MODEL` to whatever tool-calling-capable model you do have access to.
+`LLM_PROVIDER` selects which SDK the interactive agents call: `anthropic` (default) or `openai`. Set the matching `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. `ANTHROPIC_MODEL`/`OPENAI_MODEL` optionally override the default model string (`claude-sonnet-5` / `gpt-5.4-mini`). OpenAI model availability changes over time — if `gpt-5.4-mini` isn't available on your account, set `OPENAI_MODEL` to whatever tool-calling-capable model you do have access to.
