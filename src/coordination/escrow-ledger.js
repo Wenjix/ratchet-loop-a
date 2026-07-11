@@ -15,6 +15,12 @@ function findEntry(mandateId) {
 
 export function releaseEscrow(mandateId) {
   const entry = findEntry(mandateId);
+  // Defense-in-depth: only a 'held' entry can be released. Route-level and agent-level
+  // guards should already prevent a second call from reaching here, but this stops a
+  // closed entry (already 'released' or 'refunded') from being silently re-transitioned.
+  if (entry.status !== 'held') {
+    throw new Error(`Escrow entry for mandate ${mandateId} is not held (status: ${entry.status})`);
+  }
   entry.status = 'released';
   entry.closedAt = Date.now();
   bus.emit('escrow_released', entry);
@@ -23,6 +29,9 @@ export function releaseEscrow(mandateId) {
 
 export function refundEscrow(mandateId) {
   const entry = findEntry(mandateId);
+  if (entry.status !== 'held') {
+    throw new Error(`Escrow entry for mandate ${mandateId} is not held (status: ${entry.status})`);
+  }
   entry.status = 'refunded';
   entry.closedAt = Date.now();
   bus.emit('escrow_refunded', entry);

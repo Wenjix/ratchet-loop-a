@@ -16,15 +16,21 @@ export function createApiRouter() {
     for (const res of sseClients) res.write(message);
   }
 
-  bus.on('decision_logged', (d) => broadcast('decision', formatDecisionForUI(d)));
-  bus.on('mandate_created', (m) => broadcast('mandate_created', m));
-  bus.on('mandate_updated', (m) => broadcast('mandate_updated', m));
-  bus.on('decision_class_updated', (dc) => broadcast('decision_class_updated', dc));
-  bus.on('policy_proposed', (p) => broadcast('policy_proposed', p));
-  bus.on('policy_accepted', (p) => broadcast('policy_accepted', p));
-  bus.on('policy_rejected', (p) => broadcast('policy_rejected', p));
-  bus.on('policy_revoked', (p) => broadcast('policy_revoked', p));
-  bus.on('coordination_flow', (f) => broadcast('coordination_flow', f));
+  // Track listeners attached to the shared module-level `bus` singleton so they can be
+  // removed via dispose(). Without this, each createApiRouter() call (e.g. once per test
+  // in test/server.test.js) stacks another set of listeners on `bus` forever.
+  const busListeners = [
+    ['decision_logged', (d) => broadcast('decision', formatDecisionForUI(d))],
+    ['mandate_created', (m) => broadcast('mandate_created', m)],
+    ['mandate_updated', (m) => broadcast('mandate_updated', m)],
+    ['decision_class_updated', (dc) => broadcast('decision_class_updated', dc)],
+    ['policy_proposed', (p) => broadcast('policy_proposed', p)],
+    ['policy_accepted', (p) => broadcast('policy_accepted', p)],
+    ['policy_rejected', (p) => broadcast('policy_rejected', p)],
+    ['policy_revoked', (p) => broadcast('policy_revoked', p)],
+    ['coordination_flow', (f) => broadcast('coordination_flow', f)],
+  ];
+  for (const [event, handler] of busListeners) bus.on(event, handler);
 
   router.get('/state', (req, res) => {
     res.json({
@@ -47,6 +53,12 @@ export function createApiRouter() {
   router.post('/mandates/:id/approve', (req, res) => {
     const mandate = worldState.mandates.find((m) => m.id === req.params.id);
     if (!mandate) return res.status(404).json({ error: 'Unknown mandate' });
+    // Idempotency guard: only a mandate still awaiting approval can be approved. Without
+    // this, two rapid/duplicate requests for the same mandate id both pass and both open
+    // escrow, leaving two 'held' entries for one mandate.
+    if (mandate.status !== 'pending_approval') {
+      return res.status(400).json({ error: `Mandate ${mandate.id} is not pending approval (status: ${mandate.status})` });
+    }
     updateMandateStatus(mandate.id, 'committed');
     openEscrow(mandate.id, mandate.amount);
     res.json({ success: true });
@@ -55,6 +67,9 @@ export function createApiRouter() {
   router.post('/mandates/:id/reject', (req, res) => {
     const mandate = worldState.mandates.find((m) => m.id === req.params.id);
     if (!mandate) return res.status(404).json({ error: 'Unknown mandate' });
+    if (mandate.status !== 'pending_approval') {
+      return res.status(400).json({ error: `Mandate ${mandate.id} is not pending approval (status: ${mandate.status})` });
+    }
     try {
       updateMandateStatus(mandate.id, 'rejected');
       recordOutcome(mandate.decisionClassKey, { mandateId: mandate.id, amount: mandate.amount, outcome: 'rejected' });
@@ -67,6 +82,13 @@ export function createApiRouter() {
   router.post('/mandates/:id/override', (req, res) => {
     const mandate = worldState.mandates.find((m) => m.id === req.params.id);
     if (!mandate) return res.status(404).json({ error: 'Unknown mandate' });
+    // Override reverses a mandate that was already auto-executed (committed) and holds
+    // escrow — that's the only status reversal makes sense from (see the spec's "manual
+    // override on an auto-executed action" language). Without this guard, two rapid
+    // override requests would both pass and both try to reverse the same mandate.
+    if (mandate.status !== 'committed') {
+      return res.status(400).json({ error: `Mandate ${mandate.id} is not committed (status: ${mandate.status})` });
+    }
     try {
       // Escrow refund runs first, inside the same try/catch, before the mandate status is
       // durably flipped — same ordering-bug class fixed in verification-agent.js's
@@ -121,6 +143,15 @@ export function createApiRouter() {
     res.json({ success: true, started: true });
     runScenario({ onEvent: (e) => broadcast('scenario_event', e) }).catch((error) => broadcast('scenario_error', { message: error.message }));
   });
+
+  // router is an Express middleware function; attaching .dispose to it (rather than
+  // changing the return shape to { router, dispose }) keeps `app.use('/api',
+  // createApiRouter())` in src/server/index.js working unmodified.
+  router.dispose = () => {
+    for (const [event, handler] of busListeners) bus.off(event, handler);
+    for (const res of sseClients) res.end();
+    sseClients.clear();
+  };
 
   return router;
 }

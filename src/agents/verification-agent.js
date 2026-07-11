@@ -35,6 +35,15 @@ export function executeVerificationTool(toolName, toolInput) {
       const mandate = worldState.mandates.find((m) => m.id === mandate_id);
       if (!mandate) return { success: false, error: `Unknown mandate: ${mandate_id}` };
 
+      // Idempotency guard: verify_completion may only settle a mandate that is still
+      // 'committed'. Without this, a duplicate call (retried request, duplicate LLM tool
+      // call) would re-run releaseEscrow/refundEscrow, re-apply updateReputation, and
+      // re-call recordOutcome for the same real-world completion, double-counting toward
+      // Loop A's streak and inflating vendor reputation.
+      if (mandate.status !== 'committed') {
+        return { success: false, error: `Mandate ${mandate_id} is not committed (status: ${mandate.status})` };
+      }
+
       const verified = attestation?.self_reported_ok ? 'good' : 'bad';
 
       // Deviation from the brief (see task-15-report.md): a mandate that exists but was never

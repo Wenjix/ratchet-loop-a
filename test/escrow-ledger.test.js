@@ -30,3 +30,19 @@ test('releaseEscrow throws for an unknown mandate', () => {
 test('getLedger returns all entries', () => {
   assert.equal(getLedger().length, 2);
 });
+
+test('releaseEscrow throws when the entry is already released (defense-in-depth)', () => {
+  // 'm1' was already released by the 'releaseEscrow transitions held to released' test above.
+  assert.throws(() => releaseEscrow('m1'), /not held/);
+});
+
+test('refundEscrow throws when the entry is already refunded (defense-in-depth)', () => {
+  // 'm2' was already refunded by the 'refundEscrow transitions held to refunded' test above.
+  assert.throws(() => refundEscrow('m2'), /not held/);
+});
+
+test('refundEscrow throws when the entry was released rather than refunded', () => {
+  openEscrow('m3', 40);
+  releaseEscrow('m3');
+  assert.throws(() => refundEscrow('m3'), /not held/);
+});
