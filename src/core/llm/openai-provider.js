@@ -16,7 +16,7 @@ export function createOpenAIProvider({ client } = {}) {
       const messages = [{ role: 'system', content: systemPrompt }, ...history.flatMap(toOpenAIMessages)];
       const response = await activeClient.chat.completions.create({
         model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
-        max_tokens: 1024,
+        max_completion_tokens: 1024,
         messages,
         tools: tools.map(toOpenAITool),
       });
