@@ -48,3 +48,17 @@ test('getConflictStats tallies totals by type and severity', () => {
   assert.ok(stats.total >= 5);
   assert.ok('budget-cap-breach' in stats.by_type);
 });
+
+test('detectConflicts pairs the acting agent with the actual vendor, not itself, on vendor contention', () => {
+  worldState.budget.categories.grocery = { cap_per_month: 500, spent_this_month: 0 };
+  worldState.mandates = [{ id: 'm0', vendor_id: 'freshcart', status: 'committed' }];
+  const conflicts = detectConflicts('sourcing', 'commit_mandate', { category: 'grocery', amount: 90, vendor_id: 'freshcart', task_id: 't-contention', task_type: 'grocery_restock' });
+  const vendorConflict = conflicts.find((c) => c.type === 'vendor-contention');
+  assert.deepEqual(vendorConflict.agents, ['sourcing', 'freshcart']);
+});
+
+test('detectConflicts does not throw when called with no params', () => {
+  assert.doesNotThrow(() => detectConflicts('sourcing', 'commit_mandate'));
+  const conflicts = detectConflicts('sourcing', 'commit_mandate');
+  assert.deepEqual(conflicts, []);
+});

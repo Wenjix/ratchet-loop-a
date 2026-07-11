@@ -3,7 +3,7 @@ import { bus, worldState } from './world-state.js';
 const conflictHistory = [];
 let conflictCounter = 0;
 
-export function detectConflicts(agentName, action, params) {
+export function detectConflicts(agentName, action, params = {}) {
   const conflicts = [
     ...checkBudgetConflicts(agentName, action, params),
     ...checkVendorContention(agentName, action, params),
@@ -64,7 +64,7 @@ function checkVendorContention(agentName, action, params) {
     return [{
       type: 'vendor-contention',
       severity: 'warning',
-      agents: [agentName, 'sourcing'],
+      agents: [agentName, vendor_id],
       description: `${vendor_id} already has an active mandate (${active.id}) in progress`,
       resolutionOptions: [
         { id: 'queue', label: 'Queue — commit after the active mandate settles', recommended: true },
