@@ -1,0 +1,58 @@
+/*
+ * Washi Daylight — the single theme.
+ *
+ * Motion principles (every component defers to these):
+ *   - nothing flashes, blinks, shakes, or loops fast: transitions >= 600ms,
+ *     ambient loops >= 20s (mote travel is the one exception — it honors the
+ *     server's flow.duration of 4–5s);
+ *   - easing is --ease-calm; animate only opacity / transform / stroke-dashoffset;
+ *   - state changes register peripherally (desaturation, halo breaths, slow draws)
+ *     before they register focally;
+ *   - every ambient loop carries the class .ambient so the de-ratchet hush can
+ *     pause the whole garden with animation-play-state alone;
+ *   - prefers-reduced-motion collapses travel and draws into simple cross-fades.
+ */
+:root {
+  color-scheme: light;
+
+  /* Paper */
+  --paper: #f6f1e5;
+  --paper-deep: #ede6d6;
+  --paper-raised: #fbf7ed;
+
+  /* Ink (sumi) */
+  --ink: #2c2823;
+  --ink-soft: #6b6457;
+  --ink-faint: #a69c88;
+  --line: rgba(44, 40, 35, 0.16);
+  --line-strong: rgba(44, 40, 35, 0.38);
+
+  /* Organic accents */
+  --moss: #7a8b66;
+  --clay: #a9714b;
+  --indigo: #4c5b7c;
+  --iron: #a54b3c; /* muted heir to the old #EF4444 — the only red family on screen */
+
+  /* Kintsugi */
+  --gold: #c9a227;
+  --gold-light: #e4c65b;
+
+  /* Agent tones — hue identity preserved against src/core/interpretability.js */
+  --agent-budget: #b8863b; /* amber  → ochre */
+  --agent-scheduler: #8b7bb0; /* violet → wisteria */
+  --agent-sourcing: #4e8e9b; /* cyan   → indigo-teal */
+  --agent-verification: #6e9161; /* green  → moss-green */
+  --agent-router: #948c7d; /* grey   → warm stone */
+  --agent-system: #857d6f; /* grey   → warm stone, darker */
+
+  /* Type */
+  --font-narrative: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
+  --font-data: 'JetBrains Mono', Consolas, monospace;
+
+  /* Motion */
+  --ease-calm: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-breath: 1600ms;
+  --dur-settle: 600ms;
+  --dur-grow: 900ms;
+  --dur-seam: 2500ms;
+}
