@@ -2,6 +2,10 @@
 
 **A household of AI agents that has to *earn* the right to spend your money — one errand at a time — and loses it instantly the first time it fails you.**
 
+![The Ratchet — Loop A dashboard: household agents inside a hand-drawn trust boundary with the human principal seated on it, vendor signposts beyond the fence connected by trusted-policy threads, and the trust garden rail showing two bloomed policies and a ceiling-pinned bonsai](docs/images/washi-dashboard.png)
+
+*After the nine weeks: GreenBlade and FreshCart hold standing policies (the dashed threads through the gate), while QuickFix — flawless nine times — stays a bonsai, escalated by design.*
+
 ---
 
 ## The idea, in plain terms
