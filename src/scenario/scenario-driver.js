@@ -1,4 +1,4 @@
-import { worldState, scheduleTask, advanceSimTime, updateMandateStatus, recordSpend } from '../core/world-state.js';
+import { worldState, scheduleTask, advanceSimTime, updateMandateStatus } from '../core/world-state.js';
 import { registerVendor } from '../coordination/vendor-registry.js';
 import { openEscrow } from '../coordination/escrow-ledger.js';
 import { getOrCreateDecisionClass, acceptProposal, rejectProposal, recordOutcome, resetDecisionClasses } from '../loop-a/loop-a-engine.js';
@@ -45,7 +45,7 @@ export async function runCycle({ task, vendorAgent, mandateApprover = autoApprov
   const amount = vendorAgent.quote();
 
   const commitResult = executeSourcingTool('commit_mandate', {
-    task_id: task.id, task_type: task.task_type, vendor_id: vendorAgent.id, amount, scope: task.scope,
+    task_id: task.id, task_type: task.task_type, vendor_id: vendorAgent.id, amount, scope: task.scope, category: task.category,
   });
   onEvent({ type: 'mandate_drafted', task_id: task.id, vendor_id: vendorAgent.id, amount, auto_approved: commitResult.auto_approved });
 
@@ -69,9 +69,9 @@ export async function runCycle({ task, vendorAgent, mandateApprover = autoApprov
   const verifyResult = executeVerificationTool('verify_completion', { mandate_id: mandate.id, attestation });
   onEvent({ type: 'job_verified', mandate_id: mandate.id, verified: verifyResult.verified });
 
-  if (verifyResult.verified === 'good') {
-    recordSpend(task.category, amount);
-  }
+  // Spend is now recorded by verify_completion itself (verification-agent.js) using the
+  // mandate's category, since every real mandate carries one via commit_mandate's schema.
+  // Recording it here too would double-count every cycle's spend.
 
   const dc = getOrCreateDecisionClass(mandate.decisionClassKey, { ceiling: CEILING_BY_TASK_TYPE[task.task_type] || 'escalate' });
   if (dc.pendingProposal) {

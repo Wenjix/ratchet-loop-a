@@ -9,11 +9,12 @@ import { runAgentLoop } from '../core/agent-loop.js';
 
 const SOURCING_SYSTEM_PROMPT = `You are SOURCING, the vendor-discovery and mandate-drafting agent in a Ratchet Loop A prototype.
 
-ROLE: Find vendors for a recurring household task, get quotes, and commit a Cart Mandate (vendor, price, scope). You do not decide whether a mandate needs principal approval — that is determined automatically by the Loop A policy engine when you call commit_mandate.
+ROLE: Find vendors for a recurring household task, get quotes, and commit a Cart Mandate (vendor, price, scope, budget category). You do not decide whether a mandate needs principal approval — that is determined automatically by the Loop A policy engine when you call commit_mandate.
 
 CONSTRAINTS:
 - Only commit a mandate to a vendor that actually serves the requested task_type.
-- Prefer the vendor with the best reputation when quotes are otherwise similar.`;
+- Prefer the vendor with the best reputation when quotes are otherwise similar.
+- Always set category on commit_mandate to the household budget category the spend belongs to (e.g. 'lawn_care', 'groceries', 'home_repair') so Budget's spend tracking stays accurate.`;
 
 const SOURCING_TOOLS = [
   { name: 'get_vendor_quotes', description: 'Get vendors and price ranges for a task type.', input_schema: { type: 'object', properties: { task_type: { type: 'string' } }, required: ['task_type'] } },
@@ -25,8 +26,9 @@ const SOURCING_TOOLS = [
       properties: {
         task_id: { type: 'string' }, task_type: { type: 'string' }, vendor_id: { type: 'string' },
         amount: { type: 'number' }, scope: { type: 'string' },
+        category: { type: 'string', description: "Household budget category this spend belongs to, e.g. 'lawn_care', 'groceries', 'home_repair'." },
       },
-      required: ['task_id', 'task_type', 'vendor_id', 'amount', 'scope'],
+      required: ['task_id', 'task_type', 'vendor_id', 'amount', 'scope', 'category'],
     },
   },
 ];
@@ -38,7 +40,7 @@ export function executeSourcingTool(toolName, toolInput) {
       return { success: true, vendors: vendors.map((v) => ({ vendor_id: v.id, name: v.name, price_range: v.price_range, reputation: v.reputation })) };
     }
     case 'commit_mandate': {
-      const { task_id, task_type, vendor_id, amount, scope } = toolInput;
+      const { task_id, task_type, vendor_id, amount, scope, category } = toolInput;
       const key = buildDecisionClassKey({ agent: 'sourcing', action: 'commit_mandate', counterparty: vendor_id, task_type, amount });
       getOrCreateDecisionClass(key, { ceiling: CEILING_BY_TASK_TYPE[task_type] || 'escalate' });
       const { autoApprove, reason } = checkPolicy(key, amount);
@@ -46,7 +48,7 @@ export function executeSourcingTool(toolName, toolInput) {
       const cascade = startCascade({ trigger: `commit_mandate: ${task_type} to ${vendor_id}`, source: autoApprove ? 'auto-trigger' : 'principal' });
       const mandate = pushMandate({
         id: `mandate-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        task_id, task_type, vendor_id, amount, scope,
+        task_id, task_type, vendor_id, amount, scope, category,
         decisionClassKey: key,
         cascadeId: cascade.id,
       });

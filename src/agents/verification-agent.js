@@ -1,5 +1,5 @@
 // src/agents/verification-agent.js
-import { worldState, updateMandateStatus } from '../core/world-state.js';
+import { worldState, updateMandateStatus, recordSpend } from '../core/world-state.js';
 import { releaseEscrow, refundEscrow } from '../coordination/escrow-ledger.js';
 import { updateReputation } from '../coordination/vendor-registry.js';
 import { recordOutcome } from '../loop-a/loop-a-engine.js';
@@ -57,6 +57,13 @@ export function executeVerificationTool(toolName, toolInput) {
           releaseEscrow(mandate_id);
           updateMandateStatus(mandate_id, 'settled');
           updateReputation(mandate.vendor_id, 0.05);
+          // Settlement is the sole place spend should be recorded against a budget category.
+          // Mandates created outside commit_mandate's schema (e.g. hand-built in tests) may
+          // carry no category — skip recording rather than throwing "Unknown budget category"
+          // and aborting an otherwise-successful verification.
+          if (mandate.category) {
+            recordSpend(mandate.category, mandate.amount);
+          }
         } else {
           refundEscrow(mandate_id);
           updateMandateStatus(mandate_id, 'disputed');
