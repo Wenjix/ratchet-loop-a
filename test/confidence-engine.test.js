@@ -26,6 +26,16 @@ test('scoreDataConfidence returns low when the relevant freshness timestamp is s
   assert.ok(d.stale_sources.includes('vendor_reputation'));
 });
 
+test('scoreDataConfidence scores low, not high, when the queried agent\'s own domain has never been touched', () => {
+  worldState.freshness.budget = 0;
+  worldState.freshness.vendors = 0;
+  worldState.freshness.tasks = 0;
+  worldState.freshness.mandates = 0;
+  const d = scoreDataConfidence('budget');
+  assert.equal(d.level, 'low');
+  assert.ok(d.stale_sources.includes('budget'));
+});
+
 test('scoreActionConfidence lowers score for hedging language and blocked conflicts', () => {
   const hedged = scoreActionConfidence({ speech: 'maybe this could be uncertain', toolResults: [] });
   const blocked = scoreActionConfidence({ speech: 'confirmed', toolResults: [{ success: false, blocked_by_conflict: true }] });

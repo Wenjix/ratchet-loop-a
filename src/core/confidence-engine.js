@@ -61,32 +61,41 @@ function buildRoutingExplanation(matchType, agent, score) {
   }
 }
 
+const FRESHNESS_SOURCES = [
+  { name: 'budget', key: 'budget', maxAgeMs: 10 * 60 * 1000 },
+  { name: 'vendor_reputation', key: 'vendors', maxAgeMs: 10 * 60 * 1000 },
+  { name: 'task_schedule', key: 'tasks', maxAgeMs: 10 * 60 * 1000 },
+  { name: 'mandate_status', key: 'mandates', maxAgeMs: 5 * 60 * 1000 },
+];
+
+const PRIMARY_FRESHNESS_KEY = {
+  budget: 'budget',
+  sourcing: 'vendors',
+  scheduler: 'tasks',
+  verification: 'mandates',
+};
+
 export function scoreDataConfidence(agentName) {
   const now = Date.now();
+  const primaryKey = PRIMARY_FRESHNESS_KEY[agentName];
   const factors = [];
 
-  if (worldState.freshness.budget !== 0) {
-    const budgetAge = now - (worldState.freshness.budget || 0);
-    factors.push({ name: 'budget', score: Math.max(0, 1 - budgetAge / (10 * 60 * 1000)), weight: agentName === 'budget' ? 3 : 1 });
-  }
-
-  if (worldState.freshness.vendors !== 0) {
-    const vendorAge = now - (worldState.freshness.vendors || 0);
-    factors.push({ name: 'vendor_reputation', score: Math.max(0, 1 - vendorAge / (10 * 60 * 1000)), weight: agentName === 'sourcing' ? 3 : 1 });
-  }
-
-  if (worldState.freshness.tasks !== 0) {
-    const taskAge = now - (worldState.freshness.tasks || 0);
-    factors.push({ name: 'task_schedule', score: Math.max(0, 1 - taskAge / (10 * 60 * 1000)), weight: agentName === 'scheduler' ? 3 : 1 });
-  }
-
-  if (worldState.freshness.mandates !== 0) {
-    const mandateAge = now - (worldState.freshness.mandates || 0);
-    factors.push({ name: 'mandate_status', score: Math.max(0, 1 - mandateAge / (5 * 60 * 1000)), weight: agentName === 'verification' ? 3 : 1 });
+  // A source's freshness timestamp defaults to 0 (never touched, see world-state.js).
+  // The queried agent's own primary source is always scored — 0 correctly reads as
+  // maximally stale, so an agent whose own domain has never been touched gets a low
+  // score rather than being silently excluded. Other agents' sources are only scored
+  // once they've actually been touched — it's expected they haven't been yet, and
+  // that shouldn't be read as staleness.
+  for (const source of FRESHNESS_SOURCES) {
+    const isPrimary = source.key === primaryKey;
+    const timestamp = worldState.freshness[source.key];
+    if (timestamp === 0 && !isPrimary) continue;
+    const age = now - timestamp;
+    factors.push({ name: source.name, score: Math.max(0, 1 - age / source.maxAgeMs), weight: isPrimary ? 3 : 1 });
   }
 
   const totalWeight = factors.reduce((sum, f) => sum + f.weight, 0);
-  const weightedScore = totalWeight > 0 ? factors.reduce((sum, f) => sum + f.score * f.weight, 0) / totalWeight : 1.0;
+  const weightedScore = totalWeight > 0 ? factors.reduce((sum, f) => sum + f.score * f.weight, 0) / totalWeight : 0.5;
 
   return {
     score: Math.round(weightedScore * 100) / 100,
