@@ -60,7 +60,7 @@ async function refresh() {
   const res = await fetch('/api/state');
   const state = await res.json();
   feedList.innerHTML = '';
-  for (const decision of state.decisionFeed.slice(-30).reverse()) renderDecision(decision);
+  for (const decision of state.decisionFeed.slice(-30)) renderDecision(decision);
   renderLedger(state.policyLedger);
   renderInbox(state.mandates);
 }
