@@ -1,0 +1,16 @@
+{
+  "name": "ratchet-loop-a",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test 'test/*.test.js'",
+    "start": "node src/server/index.js",
+    "demo": "node src/scenario/scenario-driver.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "express": "^4.19.0"
+  }
+}
