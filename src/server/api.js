@@ -22,6 +22,7 @@ export function createApiRouter() {
   bus.on('decision_class_updated', (dc) => broadcast('decision_class_updated', dc));
   bus.on('policy_proposed', (p) => broadcast('policy_proposed', p));
   bus.on('policy_accepted', (p) => broadcast('policy_accepted', p));
+  bus.on('policy_rejected', (p) => broadcast('policy_rejected', p));
   bus.on('policy_revoked', (p) => broadcast('policy_revoked', p));
   bus.on('coordination_flow', (f) => broadcast('coordination_flow', f));
 
@@ -54,18 +55,26 @@ export function createApiRouter() {
   router.post('/mandates/:id/reject', (req, res) => {
     const mandate = worldState.mandates.find((m) => m.id === req.params.id);
     if (!mandate) return res.status(404).json({ error: 'Unknown mandate' });
-    updateMandateStatus(mandate.id, 'rejected');
-    recordOutcome(mandate.decisionClassKey, { mandateId: mandate.id, amount: mandate.amount, outcome: 'rejected' });
-    res.json({ success: true });
+    try {
+      updateMandateStatus(mandate.id, 'rejected');
+      recordOutcome(mandate.decisionClassKey, { mandateId: mandate.id, amount: mandate.amount, outcome: 'rejected' });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
   });
 
   router.post('/mandates/:id/override', (req, res) => {
     const mandate = worldState.mandates.find((m) => m.id === req.params.id);
     if (!mandate) return res.status(404).json({ error: 'Unknown mandate' });
-    updateMandateStatus(mandate.id, 'rejected');
-    refundEscrow(mandate.id);
-    recordOutcome(mandate.decisionClassKey, { mandateId: mandate.id, amount: mandate.amount, outcome: 'overridden' });
-    res.json({ success: true });
+    try {
+      updateMandateStatus(mandate.id, 'rejected');
+      refundEscrow(mandate.id);
+      recordOutcome(mandate.decisionClassKey, { mandateId: mandate.id, amount: mandate.amount, outcome: 'overridden' });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
   });
 
   router.post('/policies/:key/accept', (req, res) => {
