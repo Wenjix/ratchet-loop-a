@@ -56,3 +56,14 @@ test('verify_completion returns a structured error instead of throwing when the 
   assert.equal(result.success, false);
   assert.match(result.error, /No escrow entry/);
 });
+
+test('verify_completion does not flip mandate status when the escrow call fails', () => {
+  const key = buildDecisionClassKey({ agent: 'sourcing', action: 'commit_mandate', counterparty: 'freshcart', task_type: 'grocery_restock', amount: 100 });
+  getOrCreateDecisionClass(key, { ceiling: 'auto' });
+  const mandate = pushMandate({ id: 'm-status-guard', task_id: 't-status-guard', task_type: 'grocery_restock', vendor_id: 'freshcart', amount: 100, scope: 'weekly groceries', decisionClassKey: key });
+  // Deliberately no openEscrow(mandate.id, ...) call — this mandate has no escrow entry.
+
+  const result = executeVerificationTool('verify_completion', { mandate_id: mandate.id, attestation: { self_reported_ok: true, notes: 'looks fine' } });
+  assert.equal(result.success, false);
+  assert.equal(worldState.mandates.find((m) => m.id === mandate.id).status, 'pending_approval');
+});

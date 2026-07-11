@@ -45,12 +45,12 @@ export function executeVerificationTool(toolName, toolInput) {
       // throwing calls and return a structured error instead of letting the throw escape.
       try {
         if (verified === 'good') {
-          updateMandateStatus(mandate_id, 'settled');
           releaseEscrow(mandate_id);
+          updateMandateStatus(mandate_id, 'settled');
           updateReputation(mandate.vendor_id, 0.05);
         } else {
-          updateMandateStatus(mandate_id, 'disputed');
           refundEscrow(mandate_id);
+          updateMandateStatus(mandate_id, 'disputed');
           updateReputation(mandate.vendor_id, -0.15);
         }
       } catch (error) {
