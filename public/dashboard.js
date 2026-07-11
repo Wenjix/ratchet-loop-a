@@ -12,6 +12,22 @@ function el(tag, attrs = {}) {
   return node;
 }
 
+// Small, unobtrusive status indicator (created here rather than in index.html
+// so this fix stays scoped to dashboard.js).
+const statusLine = el('span', { class: 'status-line' });
+const headerEl = document.querySelector('header');
+if (headerEl) headerEl.appendChild(statusLine);
+
+function showStatus(message) {
+  statusLine.textContent = message;
+  statusLine.classList.add('status-error');
+}
+
+function clearStatus() {
+  statusLine.textContent = '';
+  statusLine.classList.remove('status-error');
+}
+
 function renderDecision(decision) {
   const li = el('li');
   li.appendChild(el('span', { class: 'agent-dot', style: `background:${decision.color}` }));
@@ -38,6 +54,20 @@ function renderLedger(entries) {
   }
 }
 
+// POST to an inbox action endpoint, refreshing on success and surfacing a
+// visible error (instead of silently leaving the card in place) on failure.
+function postInboxAction(url) {
+  fetch(url, { method: 'POST' })
+    .then((response) => {
+      if (!response.ok) {
+        showStatus(`Action failed (${response.status})`);
+        return;
+      }
+      return refresh();
+    })
+    .catch(() => showStatus('Action failed — network error'));
+}
+
 function renderInbox(mandates, policyLedger) {
   inboxList.innerHTML = '';
   const pending = mandates.filter((m) => m.status === 'pending_approval');
@@ -46,9 +76,9 @@ function renderInbox(mandates, policyLedger) {
     li.appendChild(document.createTextNode(`${mandate.task_type} → ${mandate.vendor_id}: $${mandate.amount}`));
     const actions = el('span', { class: 'inbox-actions' });
     const approveBtn = el('button', { text: 'Approve' });
-    approveBtn.onclick = () => fetch(`/api/mandates/${mandate.id}/approve`, { method: 'POST' }).then(refresh);
+    approveBtn.onclick = () => postInboxAction(`/api/mandates/${mandate.id}/approve`);
     const rejectBtn = el('button', { class: 'reject', text: 'Reject' });
-    rejectBtn.onclick = () => fetch(`/api/mandates/${mandate.id}/reject`, { method: 'POST' }).then(refresh);
+    rejectBtn.onclick = () => postInboxAction(`/api/mandates/${mandate.id}/reject`);
     actions.appendChild(approveBtn);
     actions.appendChild(rejectBtn);
     li.appendChild(actions);
@@ -63,9 +93,9 @@ function renderInbox(mandates, policyLedger) {
     ));
     const actions = el('span', { class: 'inbox-actions' });
     const acceptBtn = el('button', { text: 'Accept' });
-    acceptBtn.onclick = () => fetch(`/api/policies/${encodeURIComponent(entry.key)}/accept`, { method: 'POST' }).then(refresh);
+    acceptBtn.onclick = () => postInboxAction(`/api/policies/${encodeURIComponent(entry.key)}/accept`);
     const rejectBtn = el('button', { class: 'reject', text: 'Reject' });
-    rejectBtn.onclick = () => fetch(`/api/policies/${encodeURIComponent(entry.key)}/reject`, { method: 'POST' }).then(refresh);
+    rejectBtn.onclick = () => postInboxAction(`/api/policies/${encodeURIComponent(entry.key)}/reject`);
     actions.appendChild(acceptBtn);
     actions.appendChild(rejectBtn);
     li.appendChild(actions);
@@ -74,12 +104,24 @@ function renderInbox(mandates, policyLedger) {
 }
 
 async function refresh() {
-  const res = await fetch('/api/state');
-  const state = await res.json();
-  feedList.innerHTML = '';
-  for (const decision of state.decisionFeed.slice(-30)) renderDecision(decision);
-  renderLedger(state.policyLedger);
-  renderInbox(state.mandates, state.policyLedger);
+  try {
+    const res = await fetch('/api/state');
+    if (!res.ok) throw new Error(`state fetch failed: ${res.status}`);
+    const state = await res.json();
+    feedList.innerHTML = '';
+    for (const decision of state.decisionFeed.slice(-30)) renderDecision(decision);
+    renderLedger(state.policyLedger);
+    renderInbox(state.mandates, state.policyLedger);
+    // Hydrate the Coordination Graph from server-computed active flows so a
+    // page load/reload mid-run isn't empty until the next live SSE event.
+    // Reuses renderFlow — the same renderer the live coordination_flow
+    // handler uses — rather than duplicating its rendering logic here.
+    graphList.innerHTML = '';
+    for (const flow of state.activeFlows || []) renderFlow(flow);
+    clearStatus();
+  } catch (err) {
+    showStatus('Unable to refresh — will retry on next update');
+  }
 }
 
 document.getElementById('run-scenario').addEventListener('click', () => {
@@ -92,6 +134,13 @@ events.onmessage = (event) => {
   if (type === 'decision') renderDecision(payload);
   if (type === 'coordination_flow') renderFlow(payload);
   if (['mandate_created', 'mandate_updated', 'policy_proposed', 'policy_accepted', 'policy_rejected', 'policy_revoked'].includes(type)) refresh();
+};
+// EventSource reconnects automatically on drops, but any events broadcast
+// during the gap are otherwise lost. Resync full state once the connection
+// issue is observed so nothing stays permanently stale.
+events.onerror = () => {
+  showStatus('Connection interrupted — resyncing');
+  refresh();
 };
 
 refresh();
