@@ -31,7 +31,7 @@ export function checkPolicy(key, amount) {
   if (dc.status !== 'auto' || !dc.policy || dc.policy.revoked) {
     return { autoApprove: false, policy: dc.policy, reason: `status is ${dc.status}` };
   }
-  if (amount > dc.policy.cap) {
+  if (!Number.isFinite(amount) || amount > dc.policy.cap) {
     return { autoApprove: false, policy: dc.policy, reason: `amount $${amount} exceeds policy cap $${dc.policy.cap}` };
   }
   return { autoApprove: true, policy: dc.policy, reason: `covered by policy ${dc.policy.id}` };
@@ -80,13 +80,15 @@ function maybeProposeCrystallization(dc) {
   if (dc.ceiling === 'escalate') return;
   if (dc.streak < CRYSTALLIZE_THRESHOLD) return;
 
-  const recentAmounts = dc.history.slice(-CRYSTALLIZE_THRESHOLD).map((h) => h.amount);
+  const cleanHistory = dc.history.filter((h) => h.outcome === 'approved-clean');
+  const recentClean = cleanHistory.slice(-CRYSTALLIZE_THRESHOLD);
+  const recentAmounts = recentClean.map((h) => h.amount);
   const cap = Math.round(Math.max(...recentAmounts) * 1.1 * 100) / 100;
 
   dc.pendingProposal = {
     cap,
     proposedAt: Date.now(),
-    basis: dc.history.slice(-CRYSTALLIZE_THRESHOLD).map((h) => h.mandateId),
+    basis: recentClean.map((h) => h.mandateId),
   };
   bus.emit('policy_proposed', { key: dc.key, proposal: dc.pendingProposal });
 }
@@ -98,6 +100,9 @@ export function acceptProposal(key, { cap, humanEdited = false } = {}) {
   if (!dc || !dc.pendingProposal) throw new Error(`No pending proposal for ${key}`);
 
   const finalCap = cap ?? dc.pendingProposal.cap;
+  if (!Number.isFinite(finalCap) || finalCap <= 0) {
+    throw new Error(`Invalid cap for ${key}: must be a finite positive number`);
+  }
   dc.policy = {
     id: `POLICY-${String(++policyCounter).padStart(3, '0')}`,
     cap: finalCap,

@@ -153,3 +153,47 @@ test('resetDecisionClasses clears all decision classes and resets the policy cou
   const policy = acceptProposal(key);
   assert.equal(policy.id, 'POLICY-001');
 });
+
+test('acceptProposal rejects a non-numeric cap and does not mutate the policy', () => {
+  const key = 'sourcing:commit_mandate:capcheck:lawn_mowing:0-75';
+  getOrCreateDecisionClass(key, { ceiling: 'auto' });
+  recordOutcome(key, { mandateId: 'cc1', amount: 40, outcome: 'approved-clean' });
+  recordOutcome(key, { mandateId: 'cc2', amount: 42, outcome: 'approved-clean' });
+  const dc = recordOutcome(key, { mandateId: 'cc3', amount: 44, outcome: 'approved-clean' });
+  assert.ok(dc.pendingProposal);
+
+  assert.throws(() => acceptProposal(key, { cap: 'not-a-number' }));
+  const afterInvalid = getOrCreateDecisionClass(key);
+  assert.equal(afterInvalid.policy, null);
+  assert.ok(afterInvalid.pendingProposal, 'proposal should remain pending after a rejected accept');
+
+  assert.throws(() => acceptProposal(key, { cap: NaN }));
+  assert.equal(getOrCreateDecisionClass(key).policy, null);
+});
+
+test('checkPolicy escalates on a non-finite amount instead of auto-approving', () => {
+  const key = 'sourcing:commit_mandate:nancheck:lawn_mowing:0-75';
+  getOrCreateDecisionClass(key, { ceiling: 'auto' });
+  recordOutcome(key, { mandateId: 'nc1', amount: 40, outcome: 'approved-clean' });
+  recordOutcome(key, { mandateId: 'nc2', amount: 42, outcome: 'approved-clean' });
+  recordOutcome(key, { mandateId: 'nc3', amount: 44, outcome: 'approved-clean' });
+  acceptProposal(key);
+
+  assert.equal(checkPolicy(key, NaN).autoApprove, false);
+  assert.equal(checkPolicy(key, undefined).autoApprove, false);
+  assert.equal(checkPolicy(key, 'not-a-number').autoApprove, false);
+  assert.equal(checkPolicy(key, 40).autoApprove, true);
+});
+
+test('a rejected outcome interleaved with clean approvals does not appear in the crystallization basis', () => {
+  const key = 'sourcing:commit_mandate:rejectcheck:lawn_mowing:0-75';
+  getOrCreateDecisionClass(key, { ceiling: 'auto' });
+  recordOutcome(key, { mandateId: 'rc1', amount: 40, outcome: 'approved-clean' });
+  recordOutcome(key, { mandateId: 'rc2', amount: 42, outcome: 'approved-clean' });
+  recordOutcome(key, { mandateId: 'rc-bad', amount: 999, outcome: 'rejected' });
+  const dc = recordOutcome(key, { mandateId: 'rc3', amount: 44, outcome: 'approved-clean' });
+
+  assert.ok(dc.pendingProposal);
+  assert.deepEqual(dc.pendingProposal.basis, ['rc1', 'rc2', 'rc3']);
+  assert.equal(dc.pendingProposal.cap, 48.4);
+});
