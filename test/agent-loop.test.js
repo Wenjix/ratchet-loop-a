@@ -66,6 +66,16 @@ test('runAgentLoop blocks tool execution on a critical conflict from detectConfl
   assert.equal(result.toolResults[0].blocked_by_conflict, true);
 });
 
+test('sendAgentRequest generates distinct ids for two calls in the same millisecond', () => {
+  const req1 = sendAgentRequest({ from: 'sourcing', to: 'verification', action: 'inspect a', reason: 'r1' });
+  const req2 = sendAgentRequest({ from: 'sourcing', to: 'verification', action: 'inspect b', reason: 'r2' });
+  assert.notEqual(req1.id, req2.id);
+  resolveAgentRequest(req1.id, { summary: 'a done', success: true });
+  resolveAgentRequest(req2.id, { summary: 'b done', success: true });
+  assert.equal(req1.status, 'resolved');
+  assert.equal(req2.status, 'resolved');
+});
+
 test('runAgentLoop routes request_agent_help through sendAgentRequest', async () => {
   const client = fakeClient([
     { content: [{ type: 'tool_use', id: 'toolu_3', name: 'request_agent_help', input: { target_agent: 'verification', action: 'inspect the last mow', reason: 'confirm quality before paying' } }], stop_reason: 'tool_use' },
@@ -90,6 +100,8 @@ test('runAgentLoop sets truncated=true when MAX_TOOL_TURNS is exhausted mid-tool
   });
   assert.equal(result.truncated, true);
   assert.equal(result.actions.length, 3);
+  assert.equal(worldState.alerts[0].from, 'budget');
+  assert.match(worldState.alerts[0].message, /tool-turn limit/);
 });
 
 test('runAgentLoop sets truncated=false when the model ends naturally', async () => {

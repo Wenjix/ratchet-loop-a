@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { bus } from './world-state.js';
+import { bus, pushAlert } from './world-state.js';
 import { detectConflicts } from './conflict-resolver.js';
 
 let defaultClient = null;
@@ -32,7 +32,7 @@ const pendingRequests = [];
 
 export function sendAgentRequest({ from, to, action, params, reason, priority = 'normal' }) {
   const request = {
-    id: `req-${Date.now()}`,
+    id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     timestamp: new Date().toISOString(),
     from, to, action, params, reason, priority,
     status: 'pending',
@@ -181,6 +181,17 @@ export async function runAgentLoop({ systemPrompt, tools, toolExecutor, agentNam
   }
 
   result.truncated = truncated;
+  if (truncated) {
+    // MAX_TOOL_TURNS was hit on a turn that still required tool calls: those tools already
+    // ran (real world-state side effects), but the loop exited before Claude produced a
+    // final response, so result.speech may be misleading/empty. Surface this in the
+    // dashboard's alert stream rather than silently dropping it.
+    pushAlert({
+      from: agentName,
+      priority: 'WARNING',
+      message: `${agentName.toUpperCase()} hit the tool-turn limit (${MAX_TOOL_TURNS}) mid-task — its last actions executed but no final response was produced.`,
+    });
+  }
   const fullResponse = { agent: agentName, ...result, timestamp: new Date().toISOString() };
   bus.emit('agent_response', fullResponse);
   return result;
