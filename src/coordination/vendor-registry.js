@@ -1,4 +1,4 @@
-import { addVendorToRegistry, worldState } from '../core/world-state.js';
+import { addVendorToRegistry, worldState, bus } from '../core/world-state.js';
 
 export function registerVendor(vendor) {
   return addVendorToRegistry({ reputation: 0.7, ...vendor });
@@ -17,5 +17,6 @@ export function updateReputation(id, delta) {
   if (!vendor) throw new Error(`Unknown vendor: ${id}`);
   vendor.reputation = Math.max(0, Math.min(1, Math.round((vendor.reputation + delta) * 100) / 100));
   worldState.freshness.vendors = Date.now();
+  bus.emit('vendor_updated', vendor);
   return vendor;
 }

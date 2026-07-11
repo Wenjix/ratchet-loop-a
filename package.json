@@ -7,9 +7,12 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test 'test/*.test.js'",
+    "test": "node --test \"test/*.test.js\"",
     "start": "node src/server/index.js",
-    "demo": "node src/scenario/scenario-driver.js"
+    "demo": "node src/scenario/scenario-driver.js",
+    "web:install": "npm install --prefix web",
+    "build": "npm run build --prefix web",
+    "dev:web": "npm run dev --prefix web"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",

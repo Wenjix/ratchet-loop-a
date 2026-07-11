@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { worldState } from '../src/core/world-state.js';
+import { worldState, bus } from '../src/core/world-state.js';
 import { registerVendor, findVendors, getVendor, updateReputation } from '../src/coordination/vendor-registry.js';
 
 test('registerVendor defaults reputation to 0.7 when not given', () => {
@@ -31,4 +31,20 @@ test('updateReputation clamps to [0, 1] and rounds to 2 decimals', () => {
 
 test('updateReputation throws for an unknown vendor', () => {
   assert.throws(() => updateReputation('nope', 0.1), /Unknown vendor/);
+});
+
+test('updateReputation emits vendor_updated on the bus with the updated vendor', () => {
+  worldState.vendors.registry = [];
+  registerVendor({ id: 'rep-vendor', name: 'Rep Vendor', task_type: 'lawn_mowing', price_range: [40, 60] });
+  const seen = [];
+  const handler = (v) => seen.push(v);
+  bus.on('vendor_updated', handler);
+  try {
+    updateReputation('rep-vendor', 0.05);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].id, 'rep-vendor');
+    assert.equal(seen[0].reputation, 0.75);
+  } finally {
+    bus.off('vendor_updated', handler);
+  }
 });

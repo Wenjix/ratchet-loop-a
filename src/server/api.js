@@ -7,9 +7,14 @@ import { formatDecisionForUI, getActiveFlows } from '../core/interpretability.js
 import { handleVoiceCommand, handleDirectCommand } from '../core/router.js';
 import { runScenario } from '../scenario/scenario-driver.js';
 
+// Sentinel thrown from the scenario's onEvent to unwind a cancelled run; the /scenario/run
+// route catches it and broadcasts scenario_stopped instead of scenario_error.
+class ScenarioCancelled extends Error {}
+
 export function createApiRouter() {
   const router = Router();
   const sseClients = new Set();
+  let activeRun = null;
 
   function broadcast(type, payload) {
     const message = `data: ${JSON.stringify({ type, payload })}\n\n`;
@@ -29,6 +34,13 @@ export function createApiRouter() {
     ['policy_rejected', (p) => broadcast('policy_rejected', p)],
     ['policy_revoked', (p) => broadcast('policy_revoked', p)],
     ['coordination_flow', (f) => broadcast('coordination_flow', f)],
+    ['vendor_updated', (v) => broadcast('vendor_updated', v)],
+    // A scenario run re-registers vendors and re-creates decision classes after the UI has
+    // already hydrated; without these two bridges a connected page only learns about them
+    // at the first reputation change / first recorded outcome.
+    ['vendor_registered', (v) => broadcast('vendor_registered', v)],
+    ['decision_class_created', (dc) => broadcast('decision_class_created', dc)],
+    ['budget_updated', (b) => broadcast('budget_updated', b)],
   ];
   for (const [event, handler] of busListeners) bus.on(event, handler);
 
@@ -38,6 +50,11 @@ export function createApiRouter() {
       mandates: worldState.mandates,
       vendors: worldState.vendors.registry,
       policyLedger: getPolicyLedger(),
+      // getPolicyLedger() omits classes that have neither a policy nor a pending proposal,
+      // so early-cycle streaks would be invisible to a freshly hydrated page without the
+      // raw decision-class map.
+      decisionClasses: worldState.policies.decisionClasses,
+      simTime: worldState.tasks.simTime,
       decisionFeed: getDecisionLog().map(formatDecisionForUI),
       activeFlows: getActiveFlows(),
     });
@@ -61,6 +78,9 @@ export function createApiRouter() {
     }
     updateMandateStatus(mandate.id, 'committed');
     openEscrow(mandate.id, mandate.amount);
+    // The inbox routes are the only paths where a real human decided — announce it so the
+    // UI can distinguish a by-hand decision from the demo's simulated principal.
+    broadcast('principal_action', { kind: 'mandate_approve', mandate_id: mandate.id });
     res.json({ success: true });
   });
 
@@ -73,6 +93,7 @@ export function createApiRouter() {
     try {
       updateMandateStatus(mandate.id, 'rejected');
       recordOutcome(mandate.decisionClassKey, { mandateId: mandate.id, amount: mandate.amount, outcome: 'rejected' });
+      broadcast('principal_action', { kind: 'mandate_reject', mandate_id: mandate.id });
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -97,6 +118,7 @@ export function createApiRouter() {
       refundEscrow(mandate.id);
       updateMandateStatus(mandate.id, 'rejected');
       recordOutcome(mandate.decisionClassKey, { mandateId: mandate.id, amount: mandate.amount, outcome: 'overridden' });
+      broadcast('principal_action', { kind: 'mandate_override', mandate_id: mandate.id });
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -105,7 +127,9 @@ export function createApiRouter() {
 
   router.post('/policies/:key/accept', (req, res) => {
     try {
-      const policy = acceptProposal(decodeURIComponent(req.params.key), req.body || {});
+      const key = decodeURIComponent(req.params.key);
+      const policy = acceptProposal(key, req.body || {});
+      broadcast('principal_action', { kind: 'policy_accept', key });
       res.json({ success: true, policy });
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -114,7 +138,9 @@ export function createApiRouter() {
 
   router.post('/policies/:key/reject', (req, res) => {
     try {
-      rejectProposal(decodeURIComponent(req.params.key));
+      const key = decodeURIComponent(req.params.key);
+      rejectProposal(key);
+      broadcast('principal_action', { kind: 'policy_reject', key });
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -140,8 +166,32 @@ export function createApiRouter() {
   });
 
   router.post('/scenario/run', (req, res) => {
+    if (activeRun) return res.status(409).json({ error: 'A scenario run is already in progress' });
+    const { stepMs = 800, cycleDelayMs = 4500, approverDelayMs = 1200 } = req.body || {};
+    const run = { cancelled: false };
+    activeRun = run;
     res.json({ success: true, started: true });
-    runScenario({ onEvent: (e) => broadcast('scenario_event', e) }).catch((error) => broadcast('scenario_error', { message: error.message }));
+    runScenario({
+      pacing: { stepMs, cycleDelayMs },
+      approverDelayMs,
+      onEvent: (e) => {
+        if (run.cancelled) throw new ScenarioCancelled('Scenario run stopped');
+        broadcast('scenario_event', e);
+      },
+    })
+      .catch((error) => {
+        if (error instanceof ScenarioCancelled) broadcast('scenario_event', { type: 'scenario_stopped' });
+        else broadcast('scenario_error', { message: error.message });
+      })
+      .finally(() => {
+        if (activeRun === run) activeRun = null;
+      });
+  });
+
+  router.post('/scenario/stop', (req, res) => {
+    if (!activeRun) return res.json({ success: true, stopped: false });
+    activeRun.cancelled = true;
+    res.json({ success: true, stopped: true });
   });
 
   // router is an Express middleware function; attaching .dispose to it (rather than

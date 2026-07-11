@@ -5,6 +5,8 @@ import { createApiRouter } from '../src/server/api.js';
 import { worldState, pushMandate, updateMandateStatus } from '../src/core/world-state.js';
 import { getOrCreateDecisionClass } from '../src/loop-a/loop-a-engine.js';
 import { buildDecisionClassKey } from '../src/loop-a/decision-class.js';
+import { registerVendor, updateReputation } from '../src/coordination/vendor-registry.js';
+import { bus } from '../src/core/world-state.js';
 
 // Each test creates its own router (and therefore its own set of bus listeners); track
 // them here so afterEach can dispose them and avoid stacking listeners on the shared
@@ -180,6 +182,172 @@ test('POST /api/mandates/:id/override reverses a committed mandate and refunds e
     // A second override on the now-'rejected' mandate must be rejected by the status guard.
     const secondOverrideRes = await fetch(`http://localhost:${port}/api/mandates/${mandate.id}/override`, { method: 'POST' });
     assert.equal(secondOverrideRes.status, 400);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/state includes decisionClasses and simTime for early-cycle UI hydration', async () => {
+  const server = await startTestServer();
+  const port = server.address().port;
+  try {
+    const res = await fetch(`http://localhost:${port}/api/state`);
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.ok('decisionClasses' in body, 'state snapshot must expose decisionClasses');
+    assert.ok('simTime' in body, 'state snapshot must expose simTime');
+  } finally {
+    server.close();
+  }
+});
+
+test('vendor_updated bus events are bridged to the SSE stream', async () => {
+  const server = await startTestServer();
+  const port = server.address().port;
+  try {
+    const res = await fetch(`http://localhost:${port}/api/events`);
+    const reader = res.body.getReader();
+    registerVendor({ id: 'sse-vendor', name: 'SSE Vendor', task_type: 'lawn_mowing', price_range: [40, 60] });
+    updateReputation('sse-vendor', 0.05);
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const deadline = Date.now() + 1500;
+    while (Date.now() < deadline && !buffer.includes('vendor_updated')) {
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise((resolve) => setTimeout(() => resolve({ value: undefined, done: true }), Math.max(0, deadline - Date.now()))),
+      ]);
+      if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true });
+      if (chunk.done) break;
+    }
+    await reader.cancel().catch(() => {});
+    assert.ok(buffer.includes('"type":"vendor_updated"'), `SSE stream should carry vendor_updated, got: ${buffer || '(nothing)'}`);
+    assert.ok(buffer.includes('sse-vendor'));
+  } finally {
+    server.close();
+  }
+});
+
+test('vendor_registered and decision_class_created bus events are bridged to SSE (fresh-run hydration)', async () => {
+  const server = await startTestServer();
+  const port = server.address().port;
+  try {
+    const res = await fetch(`http://localhost:${port}/api/events`);
+    const reader = res.body.getReader();
+    bus.emit('vendor_registered', { id: 'bridge-vendor', name: 'Bridge Vendor' });
+    bus.emit('decision_class_created', { key: 'bridge:class:key', status: 'escalate' });
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const deadline = Date.now() + 1500;
+    while (Date.now() < deadline && !(buffer.includes('vendor_registered') && buffer.includes('decision_class_created'))) {
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise((resolve) => setTimeout(() => resolve({ value: undefined, done: true }), Math.max(0, deadline - Date.now()))),
+      ]);
+      if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true });
+      if (chunk.done) break;
+    }
+    await reader.cancel().catch(() => {});
+    assert.ok(buffer.includes('"type":"vendor_registered"'), `SSE should carry vendor_registered, got: ${buffer || '(nothing)'}`);
+    assert.ok(buffer.includes('"type":"decision_class_created"'), `SSE should carry decision_class_created, got: ${buffer || '(nothing)'}`);
+  } finally {
+    server.close();
+  }
+});
+
+test('budget_updated bus events are bridged to SSE', async () => {
+  const server = await startTestServer();
+  const port = server.address().port;
+  try {
+    const res = await fetch(`http://localhost:${port}/api/events`);
+    const reader = res.body.getReader();
+    bus.emit('budget_updated', { category: 'lawn_care', spent_this_month: 150 });
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const deadline = Date.now() + 1500;
+    while (Date.now() < deadline && !buffer.includes('budget_updated')) {
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise((resolve) => setTimeout(() => resolve({ value: undefined, done: true }), Math.max(0, deadline - Date.now()))),
+      ]);
+      if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true });
+      if (chunk.done) break;
+    }
+    await reader.cancel().catch(() => {});
+    assert.ok(buffer.includes('"type":"budget_updated"'), `SSE should carry budget_updated, got: ${buffer || '(nothing)'}`);
+  } finally {
+    server.close();
+  }
+});
+
+test('inbox decisions broadcast a principal_action frame over SSE', async () => {
+  const server = await startTestServer();
+  const port = server.address().port;
+  try {
+    const key = buildDecisionClassKey({ agent: 'sourcing', action: 'commit_mandate', counterparty: 'greenblade', task_type: 'lawn_mowing', amount: 55 });
+    getOrCreateDecisionClass(key, { ceiling: 'auto' });
+    const mandate = pushMandate({ id: 'srv-principal-action', task_id: 't-pa', task_type: 'lawn_mowing', vendor_id: 'greenblade', amount: 55, scope: 'weekly mow', decisionClassKey: key });
+
+    const res = await fetch(`http://localhost:${port}/api/events`);
+    const reader = res.body.getReader();
+    const approve = await fetch(`http://localhost:${port}/api/mandates/${mandate.id}/approve`, { method: 'POST' });
+    assert.equal(approve.status, 200);
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const deadline = Date.now() + 1500;
+    while (Date.now() < deadline && !buffer.includes('principal_action')) {
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise((resolve) => setTimeout(() => resolve({ value: undefined, done: true }), Math.max(0, deadline - Date.now()))),
+      ]);
+      if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true });
+      if (chunk.done) break;
+    }
+    await reader.cancel().catch(() => {});
+    assert.ok(buffer.includes('"type":"principal_action"'), `SSE should carry principal_action, got: ${buffer || '(nothing)'}`);
+    assert.ok(buffer.includes('"kind":"mandate_approve"'));
+    assert.ok(buffer.includes('srv-principal-action'));
+  } finally {
+    server.close();
+  }
+});
+
+// This test runs a real (LLM-free, seeded) scenario through the API, which resets shared
+// world state via setUpScenario — keep it last in this file.
+test('POST /api/scenario/run guards against concurrent runs and /stop cancels the active run', async () => {
+  const server = await startTestServer();
+  const port = server.address().port;
+  const jsonPost = (path, body) =>
+    fetch(`http://localhost:${port}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  try {
+    const first = await jsonPost('/api/scenario/run', { stepMs: 30, cycleDelayMs: 0, approverDelayMs: 0 });
+    assert.equal(first.status, 200);
+
+    const second = await jsonPost('/api/scenario/run', { stepMs: 30, cycleDelayMs: 0, approverDelayMs: 0 });
+    assert.equal(second.status, 409);
+
+    const stop = await fetch(`http://localhost:${port}/api/scenario/stop`, { method: 'POST' });
+    assert.equal(stop.status, 200);
+
+    // After cancellation the guard clears, so a fresh (unpaced, near-instant) run is accepted.
+    let cleared = false;
+    for (let i = 0; i < 20 && !cleared; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const retry = await jsonPost('/api/scenario/run', { stepMs: 0, cycleDelayMs: 0, approverDelayMs: 0 });
+      if (retry.status === 200) cleared = true;
+    }
+    assert.ok(cleared, 'run guard should clear after /stop cancels the active run');
+
+    // Let the final unpaced run (milliseconds of work) finish so nothing leaks past this test.
+    await new Promise((resolve) => setTimeout(resolve, 500));
   } finally {
     server.close();
   }
