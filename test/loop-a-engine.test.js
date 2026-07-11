@@ -84,14 +84,7 @@ test('a decision class pinned at ceiling escalate never proposes regardless of s
 });
 
 test('a verified-bad outcome revokes an active policy and starts the cooldown', () => {
-  const key = 'sourcing:commit_mandate:parkview:hvac_service:75-175';
-  getOrCreateDecisionClass(key, { ceiling: 'auto' });
-  for (const [i, amount] of [90, 100, 95].entries()) {
-    recordOutcome(key, { mandateId: `f${i}`, amount, outcome: 'approved-clean' });
-  }
-  const policy = acceptProposal(key);
-  assert.equal(policy.revoked, false);
-
+  const key = 'sourcing:commit_mandate:freshcart:grocery_restock:75-175';
   const dc = recordOutcome(key, { mandateId: 'f-bad', amount: 105, outcome: 'approved-then-failed' });
   assert.equal(dc.status, 'escalate');
   assert.equal(dc.streak, 0);
@@ -101,12 +94,12 @@ test('a verified-bad outcome revokes an active policy and starts the cooldown', 
 });
 
 test('checkPolicy escalates again once a policy is revoked', () => {
-  const key = 'sourcing:commit_mandate:parkview:hvac_service:75-175';
+  const key = 'sourcing:commit_mandate:freshcart:grocery_restock:75-175';
   assert.equal(checkPolicy(key, 90).autoApprove, false);
 });
 
 test('cooldown absorbs clean outcomes before streak resumes, then re-crystallizes', () => {
-  const key = 'sourcing:commit_mandate:parkview:hvac_service:75-175';
+  const key = 'sourcing:commit_mandate:freshcart:grocery_restock:75-175';
   let dc = recordOutcome(key, { mandateId: 'f-cool1', amount: 90, outcome: 'approved-clean' });
   assert.equal(dc.cooldownRemaining, 1);
   assert.equal(dc.streak, 0);
@@ -122,7 +115,7 @@ test('cooldown absorbs clean outcomes before streak resumes, then re-crystallize
 });
 
 test('rejectProposal clears the pending proposal and resets streak', () => {
-  const key = 'sourcing:commit_mandate:parkview:hvac_service:75-175';
+  const key = 'sourcing:commit_mandate:freshcart:grocery_restock:75-175';
   const dc = rejectProposal(key);
   assert.equal(dc.pendingProposal, null);
   assert.equal(dc.streak, 0);
