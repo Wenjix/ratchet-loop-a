@@ -39,6 +39,8 @@ export function checkPolicy(key, amount) {
 
 const CRYSTALLIZE_THRESHOLD = 3;
 
+const DERATCHET_COOLDOWN = 2;
+
 export function recordOutcome(key, { mandateId, amount, outcome }) {
   const dc = decisionClasses.get(key);
   if (!dc) throw new Error(`Unknown decision class: ${key}`);
@@ -46,17 +48,36 @@ export function recordOutcome(key, { mandateId, amount, outcome }) {
   dc.history.push({ timestamp: Date.now(), outcome, amount, mandateId });
 
   if (outcome === 'approved-clean') {
-    dc.streak += 1;
-    maybeProposeCrystallization(dc);
+    if (dc.cooldownRemaining > 0) {
+      dc.cooldownRemaining -= 1;
+    } else {
+      dc.streak += 1;
+      maybeProposeCrystallization(dc);
+    }
+  } else if (outcome === 'approved-then-failed' || outcome === 'overridden') {
+    deRatchet(dc);
   }
 
   bus.emit('decision_class_updated', dc);
   return dc;
 }
 
+function deRatchet(dc) {
+  if (dc.policy) {
+    dc.policy.revoked = true;
+    dc.policy.revokedAt = Date.now();
+  }
+  dc.status = 'escalate';
+  dc.streak = 0;
+  dc.cooldownRemaining = DERATCHET_COOLDOWN;
+  dc.pendingProposal = null;
+  bus.emit('policy_revoked', { key: dc.key, policy: dc.policy });
+}
+
 function maybeProposeCrystallization(dc) {
   if (dc.pendingProposal) return;
   if (dc.policy && !dc.policy.revoked) return;
+  if (dc.ceiling === 'escalate') return;
   if (dc.streak < CRYSTALLIZE_THRESHOLD) return;
 
   const recentAmounts = dc.history.slice(-CRYSTALLIZE_THRESHOLD).map((h) => h.amount);
@@ -90,6 +111,35 @@ export function acceptProposal(key, { cap, humanEdited = false } = {}) {
   dc.pendingProposal = null;
   bus.emit('policy_accepted', { key, policy: dc.policy });
   return dc.policy;
+}
+
+export function rejectProposal(key) {
+  const dc = decisionClasses.get(key);
+  if (!dc || !dc.pendingProposal) throw new Error(`No pending proposal for ${key}`);
+  dc.pendingProposal = null;
+  dc.streak = 0;
+  bus.emit('policy_rejected', { key: dc.key });
+  return dc;
+}
+
+export function getDecisionClass(key) {
+  return decisionClasses.get(key) || null;
+}
+
+export function getAllDecisionClasses() {
+  return [...decisionClasses.values()];
+}
+
+export function getPolicyLedger() {
+  return getAllDecisionClasses()
+    .filter((dc) => dc.policy || dc.pendingProposal)
+    .map((dc) => ({
+      key: dc.key,
+      status: dc.status,
+      ceiling: dc.ceiling,
+      policy: dc.policy,
+      pendingProposal: dc.pendingProposal,
+    }));
 }
 
 export function _getDecisionClassesMap() {
