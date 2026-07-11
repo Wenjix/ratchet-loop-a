@@ -5,6 +5,7 @@ import { getOrCreateDecisionClass, acceptProposal, rejectProposal, recordOutcome
 import { CEILING_BY_TASK_TYPE } from '../loop-a/decision-class.js';
 import { executeSourcingTool } from '../agents/sourcing-agent.js';
 import { executeVerificationTool } from '../agents/verification-agent.js';
+import { executeSchedulerTool } from '../agents/scheduler-agent.js';
 import { createVendorAgent } from '../vendors/vendor-agent.js';
 import { VENDOR_ROSTER } from '../vendors/vendors.config.js';
 import { CYCLE_COUNT, TASKS } from './scenario.config.js';
@@ -42,6 +43,14 @@ export function setUpScenario() {
 }
 
 export async function runCycle({ task, vendorAgent, mandateApprover = autoApproveMandate, policyApprover = autoAcceptPolicy, onEvent = () => {} }) {
+  // Scheduler check: confirm this task is actually due before Sourcing commits,
+  // mirroring the spec's data flow (Scheduler emits task_due, Sourcing reacts).
+  // This is a confirmatory check only — on the fixed seeded roster the task is
+  // always due on schedule, so it does not gate mandate creation.
+  const dueCheck = executeSchedulerTool('check_due', {});
+  const isDue = dueCheck.success && dueCheck.due.some((t) => t.id === task.id);
+  onEvent({ type: 'task_due_checked', task_id: task.id, due: isDue });
+
   const amount = vendorAgent.quote();
 
   const commitResult = executeSourcingTool('commit_mandate', {
@@ -72,6 +81,12 @@ export async function runCycle({ task, vendorAgent, mandateApprover = autoApprov
   // Spend is now recorded by verify_completion itself (verification-agent.js) using the
   // mandate's category, since every real mandate carries one via commit_mandate's schema.
   // Recording it here too would double-count every cycle's spend.
+
+  // Scheduler bookkeeping: roll this task's next_due_at forward now that the instance
+  // is complete. cadence_days (7) matches the 7-day advanceSimTime step used below, so
+  // this keeps every task due again exactly at the start of the next cycle.
+  const scheduleResult = executeSchedulerTool('complete_task_cycle', { task_id: task.id });
+  onEvent({ type: 'task_cycle_completed', task_id: task.id, success: scheduleResult.success });
 
   const dc = getOrCreateDecisionClass(mandate.decisionClassKey, { ceiling: CEILING_BY_TASK_TYPE[task.task_type] || 'escalate' });
   if (dc.pendingProposal) {
