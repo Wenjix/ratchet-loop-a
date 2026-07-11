@@ -112,6 +112,7 @@ export async function generateSitRep() {
 }
 
 export async function handleDirectCommand(agentName, message) {
+  if (!Object.prototype.hasOwnProperty.call(agents, agentName)) return { error: `Unknown agent: ${agentName}` };
   const agent = agents[agentName];
   if (!agent) return { error: `Unknown agent: ${agentName}` };
   logDecision({ agent: 'router', type: 'direct-command', action: `Direct command to ${agentName}: "${message.slice(0, 40)}..."`, reason: 'Principal interacted with agent panel directly' });
