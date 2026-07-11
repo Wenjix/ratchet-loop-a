@@ -55,14 +55,14 @@ export function recordOutcome(key, { mandateId, amount, outcome }) {
       maybeProposeCrystallization(dc);
     }
   } else if (outcome === 'approved-then-failed' || outcome === 'overridden') {
-    deRatchet(dc);
+    deRatchet(dc, mandateId);
   }
 
   bus.emit('decision_class_updated', dc);
   return dc;
 }
 
-function deRatchet(dc) {
+function deRatchet(dc, mandateId) {
   if (dc.policy) {
     dc.policy.revoked = true;
     dc.policy.revokedAt = Date.now();
@@ -71,7 +71,10 @@ function deRatchet(dc) {
   dc.streak = 0;
   dc.cooldownRemaining = DERATCHET_COOLDOWN;
   dc.pendingProposal = null;
-  bus.emit('policy_revoked', { key: dc.key, policy: dc.policy });
+  // mandateId travels with the event so consumers (router's policy_revoked
+  // handler) can trace the de-ratchet back to the mandate's cascadeId and
+  // record it in the same cascade tree the commit/verify actions belong to.
+  bus.emit('policy_revoked', { key: dc.key, policy: dc.policy, mandateId });
 }
 
 function maybeProposeCrystallization(dc) {

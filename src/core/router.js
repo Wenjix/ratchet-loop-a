@@ -2,9 +2,10 @@ import { callBudgetAgent } from '../agents/budget-agent.js';
 import { callSchedulerAgent } from '../agents/scheduler-agent.js';
 import { callSourcingAgent } from '../agents/sourcing-agent.js';
 import { callVerificationAgent } from '../agents/verification-agent.js';
-import { bus, pushAlert } from './world-state.js';
+import { bus, pushAlert, worldState } from './world-state.js';
 import { getDecisionLog, getPendingRequests, resolveAgentRequest, logDecision } from './agent-loop.js';
 import { scoreRoutingConfidence, recordConfidence } from './confidence-engine.js';
+import { addCascadeAction } from './cascade-tracker.js';
 
 const agents = {
   budget: { call: callBudgetAgent, keywords: ['spend', 'cap', 'overspend', 'cost'], description: 'Spend tracking' },
@@ -129,8 +130,26 @@ export async function handleDirectCommand(agentName, message) {
 // fire-and-forget event listener instead of a tool executor. Failure is reported
 // the same way handleVoiceCommand's own catch block reports agent failures:
 // logDecision + pushAlert, rather than propagating.
-bus.on('policy_revoked', async ({ key, policy }) => {
+bus.on('policy_revoked', async ({ key, policy, mandateId }) => {
   logDecision({ agent: 'router', type: 'cascade', action: 'Policy revoked → notifying Budget for category review', reason: `Standing policy for ${key} was revoked after a failed verification` });
+
+  // Link the de-ratchet into the same cascade tree the triggering mandate's
+  // commit_mandate/verify_completion actions already belong to, so
+  // detectClosedLoop can find that the decision-class root (sourcing's
+  // commit_mandate) is the same agent the de-ratchet traces back to —
+  // visibly "closing the loop" per the Loop A design spec, instead of this
+  // event running through an untracked path.
+  const mandate = worldState.mandates.find((m) => m.id === mandateId);
+  if (mandate?.cascadeId) {
+    addCascadeAction(mandate.cascadeId, {
+      agent: 'sourcing',
+      action: 'de-ratchet',
+      type: 'cascade',
+      result: { key, revokedPolicyId: policy?.id ?? null },
+      reason: `Standing policy for ${key} was revoked after a failed verification`,
+    });
+  }
+
   try {
     await callBudgetAgent(`[AUTO-TRIGGER: policy_revoked] The standing policy for decision class "${key}" was just revoked (cap was $${policy?.cap}). Review whether this category needs a closer look.`);
   } catch (error) {
